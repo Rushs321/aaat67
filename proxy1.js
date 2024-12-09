@@ -57,38 +57,31 @@ function redirect(req, res) {
 
 // Helper: Compress
 function compress(req, res, input) {
-  const format = "jpeg";
-
-  sharp.cache(false);
-  sharp.simd(false);
-  sharp.concurrency(1);
-
+  const format = req.params.webp ? "webp" : "jpeg";
   const sharpInstance = sharp({
     unlimited: true,
     failOn: "none",
-    limitInputPixels: false,
+    limitInputPixels: false
   });
 
-  const transform = sharpInstance
-    .resize(null, 16383, {
-      withoutEnlargement: true
-    })
-    .grayscale(req.params.grayscale)
-    .toFormat(format, {
-      quality: req.params.quality,
-      effort: 0
-    });
+  sharp.cache(false);
+  sharp.simd(false);
+  sharp.concurrency(availableParallelism());
 
-  let infoReceived = false;
-
-  input
-    .pipe(transform)
-    .on("error", () => {
-          if (!res.headersSent && !infoReceived) {
-            redirect(req, res);
-          }
-        })
-    .on("info", (info) => {
+  sharpInstance
+    .metadata()
+    .then(metadata => {
+      if (metadata.height > 16383) {
+        sharpInstance.resize({
+          width: null, // Declared width as null
+          height: 16383,
+          withoutEnlargement: true
+        });
+      }
+      return sharpInstance
+        .grayscale(req.params.grayscale)
+        .toFormat(format, { quality: req.params.quality, effort: 0 })
+        .on("info", (info) => {
           infoReceived = true;
           res.setHeader("content-type", "image/" + format);
           res.setHeader("content-length", info.size);
@@ -96,18 +89,16 @@ function compress(req, res, input) {
           res.setHeader("x-bytes-saved", req.params.originSize - info.size);
           res.statusCode = 200;
         })
-    .on('data', (chunk) => {
-      if (!res.write(chunk)) {
-        input.pause();
-        res.once('drain', () => {
-          input.resume();
-        });
-      }
-    })
-    .on('end', () => {
-      res.end();
-    })
-    
+        .on("data", chunk => {
+          res.write(chunk);
+        })
+        .on("end", () => {
+          res.end();
+        })
+        .on("error", () => redirect(req, res));
+    });
+
+  input.pipe(sharpInstance);
 }
 
 // 

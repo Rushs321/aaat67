@@ -66,7 +66,7 @@ function compress(req, res, input) {
 
   sharp.cache(false);
   sharp.simd(false);
-  sharp.concurrency(availableParallelism());
+  sharp.concurrency(1);
 
   sharpInstance
     .metadata()
